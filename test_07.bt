@@ -1,0 +1,143 @@
+BigEndian();
+BitfieldDisablePadding();
+
+#define PAGE_SIZE (16 * 1024)
+
+typedef ubyte u1;
+typedef uint16 u2;
+typedef uint32 u4;
+typedef uint64 u8;
+typedef byte i1;
+typedef int16 i2;
+typedef int32 i4;
+
+enum <u2> PAGE_TYPE {
+	 FIL_PAGE_INDEX	=	17855,	/*!< B-tree node */
+	 FIL_PAGE_RTREE	=	17854,	/*!< B-tree node */
+	 FIL_PAGE_UNDO_LOG	=2,	/*!< Undo log page */
+	 FIL_PAGE_INODE		=3	,/*!< Index node */
+	 FIL_PAGE_IBUF_FREE_LIST	=4,	/*!< Insert buffer free list */ /* File page types introduced in MySQL/InnoDB 5.1.7 */
+	 FIL_PAGE_TYPE_ALLOCATED	=0	,/*!< Freshly allocated page */
+	 FIL_PAGE_IBUF_BITMAP	=5 ,	/*!< Insert buffer bitmap */
+	 FIL_PAGE_TYPE_SYS	=6	,/*!< System page */
+	 FIL_PAGE_TYPE_TRX_SYS	=7,	/*!< Transaction system data */
+	 FIL_PAGE_TYPE_FSP_HDR	=8	,/*!< File space header */
+	 FIL_PAGE_TYPE_XDES	=9	,/*!< Extent descriptor page */
+	 FIL_PAGE_TYPE_BLOB	=10	,/*!< Uncompressed BLOB page */
+	 FIL_PAGE_TYPE_ZBLOB	=11	,/*!< First compressed BLOB page */
+	 FIL_PAGE_TYPE_ZBLOB2	=12	,/*!< Subsequent compressed BLOB page */
+	 FIL_PAGE_TYPE_UNKNOWN	=13	,/*!< In old tablespaces, garbage in FIL_PAGE_TYPE is replaced with this value when flushing pages. */
+	 FIL_PAGE_COMPRESSED	=14	,/*!< Compressed page */
+	 FIL_PAGE_ENCRYPTED	=15	,/*!< Encrypted page */
+	 FIL_PAGE_COMPRESSED_AND_ENCRYPTED =16  , /*!< Compressed and Encrypted page */
+	 FIL_PAGE_ENCRYPTED_RTREE =17,	/*!< Encrypted R-tree page */
+};
+
+// 38 字节的 File Header，存储了页的一些通用信息
+typedef struct FilHeader {
+    u4 FIL_PAGE_SPACE_OR_CHKSUM<format=hex,comment="页的校验和（checksum值）">;
+    u4 FIL_PAGE_OFFSET<fgcolor=0xFF0000,comment="页号">;
+    u4 FIL_PAGE_PREV<comment="上一个页的页号">;
+    u4 FIL_PAGE_NEXT<comment="下一个页的页号">;
+    u8 FIL_PAGE_LSN<comment="页面被最后修改时对应的日志序列位置（英文名是：Log Sequence Number）">;
+    PAGE_TYPE FIL_PAGE_TYPE<comment="页面类型">;
+    u8 FIL_PAGE_FILE_FLUSH_LSN<comment="仅在系统表空间的一个页中定义，代表文件至少被刷新到了对应的LSN值">;
+    u4 FIL_PAGE_ARCH_LOG_NO_OR_SPACE_ID<comment="页属于哪个表空间">;
+};
+
+enum <u1> PAGE_FORMAT_ENUM {
+		 REDUNDANT	= 0,
+		 COMPACT    = 1,
+};
+// 56 字节的 Page Header
+typedef struct PageHeader {
+	u2 PAGE_N_DIR_SLOTS<comment="在页目录中的槽数量">;
+	u2 PAGE_HEAP_TOP<comment="还未使用的空间最小地址，也就是说从该地址之后就是Free Space">;
+	PAGE_FORMAT_ENUM PAGE_FORMAT : 1 <comment="页面类型">;
+	u2 NUM_OF_HEAP_RECORDS : 15 <comment="本页中的记录的数量（包括最小和最大记录以及标记为删除的记录）">;
+	u2 PAGE_FREE<comment="next_record也会组成一个单链表，这个单链表中的记录可以被重新利用）">;
+	u2 PAGE_GARBAGE<comment="已删除记录占用的字节数">;
+	u2 PAGE_LAST_INSERT<comment="最后插入记录的位置">;
+	u2 PAGE_DIRECTION<comment="记录插入的方向">;
+	u2 PAGE_N_DIRECTION<comment="一个方向连续插入的记录数量">;
+	u2 PAGE_N_RECS<comment="该页中记录的数量（不包括最小和最大记录以及被标记为删除的记录）">;
+	u8 PAGE_MAX_TRX_ID<comment="修改当前页的最大事务ID，该值仅在二级索引中定义">;
+	u2 PAGE_LEVEL<comment="当前页在B+树中所处的层级">;
+	u8 PAGE_INDEX_ID<comment="索引ID，表示当前页属于哪个索引">;
+	u1 PAGE_BTR_SEG_LEAF[10]<comment="B+树叶子段的头部信息，仅在B+树的Root页定义">;
+	u1 PAGE_BTR_SEG_TOP[10]<comment="B+树非叶子段的头部信息，仅在B+树的Root页定义">;
+};
+
+// 记录类型枚举类
+enum <u1> RECORD_TYPE {
+		 CONVENTIONAL	= 0,
+		 NODE_POINTER   = 1,
+		 INFIMUM        = 2,
+		 SUPREMUM       = 3
+};
+
+// 5 字节记录头
+typedef struct   {
+	u1                       : 2;
+	u1 delete_mask           : 1;
+	u1 min_rec_mask          : 1;
+	u1 n_owned               : 4;
+    u2 heap_no               : 13;
+    RECORD_TYPE record_type  : 3;
+    short next_record        : 16; 
+} RecordHeader<fgcolor=0xFF00FF>;
+
+// 最大最小虚拟记录
+typedef struct  {
+    RecordHeader record_header; // 5 字节的记录头
+    char text[8];               // 8 字节的单词
+} InfimumSupremumRecord;
+
+typedef struct OverflowPagePointer {
+	u4 space;
+	u4 page_no;     // 页号
+	u4 page_offset; // 页内偏移量
+	u4 : 4 * 8;		// 空
+	u4 length;      // 剩余长度
+};
+typedef struct {
+	u8 row_id       : 48; // 行ID，唯一标识一条记录
+	u8 trx_id       : 48; // 事务ID
+	u8 roll_pointer : 56 <format=hex>; // 回滚指针
+	char data[768]; // 前 768 字节内容
+	OverflowPagePointer overflow_page_pointer; // 20 字节的溢出结构体
+} Row;
+
+// 定义一个 Page 结构体
+typedef struct Page(int index) {
+	FilHeader file_header;  // 38 字节的 file header
+	if (file_header.FIL_PAGE_TYPE == FIL_PAGE_INDEX) {
+		PageHeader page_header;                // 56 字节的 page header
+		InfimumSupremumRecord infimum_record;  // 13 字节的虚拟最小记录
+		local int page_start_pos = index * PAGE_SIZE;
+		local int infimum_record_pos = FTell() - page_start_pos - 8; // 获取 infimum 记录的起始地址
+		InfimumSupremumRecord supremum_record; // 13 字节的虚拟最大记录
+		local int supremum_record_pos = FTell() - page_start_pos - 8; // 获取 supremum 记录的起始地址
+		// 第一条记录的相对位置
+		local int next_rec_rel_pos = infimum_record_pos + infimum_record.record_header.next_record;
+
+		// 遍历链表
+		while(next_rec_rel_pos != supremum_record_pos) {
+			FSeek(page_start_pos + next_rec_rel_pos - 5); // 往前走五个字节，读取记录头，便于获取下一条记录的相对位置
+			RecordHeader record_header;
+			if (record_header.record_type == CONVENTIONAL) {
+				Row row;
+			}
+			next_rec_rel_pos += record_header.next_record;
+		}
+	}
+	// 跳到 Page 页的尾部
+	FSeek((index + 1) * PAGE_SIZE);
+};
+
+
+local int file_size = FileSize();
+local int i;
+for (i = 0; i < file_size / PAGE_SIZE; ++i) {
+	Page page(i); // 读取 16KB 的内容映射到 Page 结构体中
+}

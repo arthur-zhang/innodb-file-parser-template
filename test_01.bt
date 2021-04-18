@@ -1,0 +1,11 @@
+#define PAGE_SIZE (16 * 1024)
+
+// 定义一个 Page 结构体，表示一页的大小，暂时不解析里面的内容，先占个位
+typedef struct Page {
+	byte content[PAGE_SIZE];
+};
+
+// 一直读取直到文件结束
+while(!FEof()) {
+	Page page; // 读取 16KB 的内容映射到 Page 结构体中
+}
